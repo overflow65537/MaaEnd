@@ -574,28 +574,14 @@
             "GiftOperatorConfirmSelect"
         ]
     },
+    // 无候选时关闭联络界面：右上角叉复用通用关闭按钮节点，避免 OCR 认「×」不稳。
     "GiftOperatorTrustCloseContact": {
         "recognition": {
             "type": "And",
             "param": {
                 "all_of": [
                     "GiftOperatorCheckContact",
-                    {
-                        "recognition": {
-                            "type": "OCR",
-                            "param": {
-                                "roi": [
-                                    700,
-                                    0,
-                                    580,
-                                    360
-                                ],
-                                "expected": [
-                                    "×"
-                                ]
-                            }
-                        }
-                    }
+                    "CloseButtonType1"
                 ],
                 "box_index": 1
             }
