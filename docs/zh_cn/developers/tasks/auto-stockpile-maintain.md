@@ -1,6 +1,7 @@
 # 开发手册 - AutoStockpile 维护文档
 
-本文说明 `AutoStockpile` 如何在版本更新时进行维护
+本文说明 `AutoStockpile` 如何在版本更新时进行维护  
+该文档更新于 2026 年 11 月 2 日。
 
 ## 概念说明
 
@@ -180,24 +181,25 @@ var regionBases = map[string]int{
 
 在 `region` 字段的 `enum` 列表中加入新地区标识（如 `"NewRegion"`），确保第三方工具能通过 Schema 校验新增地区的数据。
 
-## 货架双页扫描
+## 货架逐屏扫描
 
-识别阶段会对弹性货架做**最多两页**扫描，避免清单超出一屏时漏扫商品：
+识别阶段会对弹性货架做**逐屏扫描**（最多三屏，对应下滑两次），避免清单超出一屏时漏扫商品：
 
 1. 对首屏截图执行 OCR + 模板匹配。
-2. 调用 `AutoStockpileSwipeShelfDown` 下滑一次（`post_wait_freezes` 等待列表稳定）。
+2. 调用 `AutoStockpileSwipeShelfDown` 小幅下滑一次（约露出一屏，确保下一屏的两行商品都可读）。
 3. 再截图扫描次屏。
-4. 按商品 **ID 去重合并**（同 ID 保留首屏结果；仅下滑后次屏才出现的 ID 记入 `SecondPageOnlyIDs`）。内部扫屏顺序为 page0=首屏、page1=次屏（0-based）；字段名表示**仅第二屏（page1）**，不是第一屏（page0）。
-5. 调用 `AutoStockpileSwipeShelfUp` 滑回首屏。
+4. 调用 `AutoStockpileSwipeShelfToBottom` 一次滑到底，扫描末屏（清单只有两屏时这次下滑不会改变画面，会直接跳过重复识别）。
+5. 按商品 **ID 去重合并**（同 ID 保留首屏结果；仅第 N 屏（0-based）才出现的 ID 记入 `SwipeCountToReveal`，值为需要下滑的次数）。
+6. 依次调用 `AutoStockpileSwipeShelfUp` 若干次（次数等于实际下滑次数）滑回首屏。
 
-下滑或次屏截图/扫描失败时降级为仅首屏结果，不中断任务；滑回首屏失败只记录警告，仍使用合并结果。
+下滑、截图或某一屏扫描失败时降级为已扫到的结果，不中断任务；滑回首屏失败只记录警告，仍使用合并结果。
 
 选中商品后：
 
-- 若商品 ID 在 `SecondPageOnlyIDs` 中（仅第二屏 / page1 可见，例如最后一排），点击前会再执行一次 `AutoStockpileSwipeShelfDown`，再交给 `AutoStockpileSelectedGoodsClick` 做模板点击。
+- 若商品在 `SwipeCountToReveal` 中（首屏看不到），点击前会按记录的次数依次执行 `AutoStockpileSwipeShelfDown`、`AutoStockpileSwipeShelfToBottom`，再交给 `AutoStockpileSelectedGoodsClick` 做模板点击。
 - 若首屏（page0）已有该商品，则不额外滑动。
 
 滑动节点：
 
-- Win32 默认：`assets/resource/pipeline/AutoStockpile/Helper.json` 中为 `DoNothing`（一屏可看全）。
+- Win32 默认：`assets/resource/pipeline/AutoStockpile/Helper.json` 中三个 `AutoStockpileSwipeShelf*` 节点均为 `DoNothing`（一屏可看全）。
 - ADB / PlayCover：`assets/resource_adb/pipeline/AutoStockpile/Helper.json` 覆盖为真实 `Swipe`（含横向收尾与 `end_hold`）。坐标基于 720p，实机若漏扫或过量重复，优先微调 ADB 侧 `begin` / `end` 与 `post_wait_freezes.target`。

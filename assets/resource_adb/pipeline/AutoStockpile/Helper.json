@@ -39,6 +39,46 @@
         "post_delay": 0,
         "rate_limit": 0
     },
+    "AutoStockpileSwipeShelfToBottom": {
+        "desc": "货架直接滑到底，露出最后一屏商品（ADB）",
+        "recognition": {
+            "type": "DirectHit",
+            "param": {}
+        },
+        "pre_delay": 0,
+        "action": {
+            "type": "Swipe",
+            "param": {
+                "begin": [
+                    640,
+                    650
+                ],
+                "end": [
+                    [
+                        640,
+                        150
+                    ],
+                    [
+                        760,
+                        150
+                    ]
+                ],
+                "end_hold": 200
+            }
+        },
+        "post_wait_freezes": {
+            "time": 300,
+            "target": [
+                63,
+                162,
+                400,
+                400
+            ],
+            "threshold": 0.98
+        },
+        "post_delay": 0,
+        "rate_limit": 0
+    },
     "AutoStockpileSwipeShelfUp": {
         "desc": "货架向上滑动一页，恢复到首屏（ADB）",
         "recognition": {
