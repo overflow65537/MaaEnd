@@ -87,16 +87,17 @@ func samePixel(a, b image.Image, x, y int) bool {
 	return ar == br && ag == bg && ab == bb && aa == ba
 }
 
-// resetShelf 按扫描时的有效下滑次数反向拖动，把货架送回扫描起点。
-// 下滑与上滑都是等距的慢速拖动，反向拖动同样次数即可让「SwipeCountToReveal =
-// 从扫描起点下滑 N 次」的语义成立；每步由滑动节点的 post_wait_freezes 等待画面稳定，
-// 不额外引入硬延迟。失败只记录日志，不阻断本次识别结果（后续点击可能因此偏位）。
-func resetShelf(ctx *maa.Context, swipeCount int) {
-	if swipeCount <= 0 {
-		return
-	}
+// shelfResetSwipes 是复位时向上滑动的次数。列表顶部会被夹紧，多滑一次不会越界，
+// 因此固定滑两次，确保从货架任意位置都能回到整页顶部。
+const shelfResetSwipes = 2
 
-	for i := 0; i < swipeCount; i++ {
+// resetShelf 把货架复位到「市场段顶部」这个固定起点：先向上滑到整页顶部
+// （列表顶部夹紧，多滑无害），再点击市场入口让 UI 跳到市场段顶部。
+// 只有列表位于整页顶部时点击市场入口才会触发跳转，因此上滑必须真正回到顶部。
+// 固定起点让 SwipeCountToReveal 的「从起点下滑 N 次」语义稳定；
+// 复位失败只记录日志，不阻断本次识别结果（后续点击可能因此偏位）。
+func resetShelf(ctx *maa.Context) {
+	for i := 0; i < shelfResetSwipes; i++ {
 		if err := swipeShelfUp(ctx); err != nil {
 			log.Warn().
 				Err(err).
@@ -104,17 +105,55 @@ func resetShelf(ctx *maa.Context, swipeCount int) {
 				Str("step", "shelf_reset_swipe").
 				Str("node", swipeShelfUpNodeName).
 				Int("swipe_index", i).
-				Int("swipe_count", swipeCount).
 				Msg("failed to swipe up during shelf reset")
 			return
 		}
 	}
 
+	img, capErr := screencapShelf(ctx)
+	if capErr != nil {
+		log.Warn().
+			Err(capErr).
+			Str("component", autoStockpileComponent).
+			Str("step", "shelf_reset_screencap").
+			Msg("failed to screencap during shelf reset")
+		return
+	}
+
+	detail, recErr := ctx.RunRecognition(shelfResetNodeName, img, nil)
+	if recErr != nil {
+		log.Warn().
+			Err(recErr).
+			Str("component", autoStockpileComponent).
+			Str("step", "shelf_reset_market").
+			Str("node", shelfResetNodeName).
+			Msg("failed to locate market entry during shelf reset")
+		return
+	}
+	if detail == nil || !detail.Hit {
+		log.Warn().
+			Str("component", autoStockpileComponent).
+			Str("step", "shelf_reset_market").
+			Str("node", shelfResetNodeName).
+			Msg("market entry not visible after scrolling to top, skip the reset click")
+		return
+	}
+
+	if _, clickErr := ctx.RunAction(shelfResetNodeName, detail.Box, "", nil); clickErr != nil {
+		log.Warn().
+			Err(clickErr).
+			Str("component", autoStockpileComponent).
+			Str("step", "shelf_reset_click").
+			Str("node", shelfResetNodeName).
+			Msg("failed to click market entry during shelf reset")
+		return
+	}
+
 	log.Info().
 		Str("component", autoStockpileComponent).
-		Str("step", "shelf_reset_swipe").
-		Int("swipe_count", swipeCount).
-		Msg("shelf restored to scan origin")
+		Str("step", "shelf_reset_click").
+		Str("node", shelfResetNodeName).
+		Msg("shelf reset to market section top")
 }
 
 // samePageGoods 判断两屏识别到的商品集合是否完全一致（按商品 ID）。
@@ -168,9 +207,11 @@ func scanGoodsAcrossShelfPages(
 	pages := [][]GoodsItem{firstPage}
 	swiped := 0
 
-	// 下游要按扫描起点点击商品，因此无论后面是否降级，都要把货架送回扫描起点。
+	// 下游要按「市场段顶部」这个固定起点点击商品，因此无论后面是否降级，都要复位货架。
 	defer func() {
-		resetShelf(ctx, swiped)
+		if swiped > 0 {
+			resetShelf(ctx)
+		}
 	}()
 
 	previousImg := firstImg
